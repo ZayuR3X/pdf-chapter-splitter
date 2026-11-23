@@ -34,7 +34,7 @@ pdf-chapter-splitter/
 
 1. Depoyu klonlayın ve proje dizinine geçin:
    ```bash
-   git clone [https://github.com/ZayuR3X/pdf-chapter-splitter.git](https://github.com/ZayuR3X/pdf-chapter-splitter.git)
+   git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
    cd pdf-chapter-splitter
    ```
 
