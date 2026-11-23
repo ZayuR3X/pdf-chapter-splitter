@@ -1,5 +1,7 @@
 # PDF Bölüm Ayırıcı (PDF Chapter Splitter)
 
+![](assets/preview.png)
+
 Ders kitapları ve teknik PDF dokümanlarını gömülü içindekiler (TOC) hiyerarşisine veya özel sayfa aralıklarına göre bağımsız PDF dosyalarına ayıran, **Python**, **PySide6** ve **PyMuPDF** tabanlı masaüstü uygulaması.
 
 ## Özellikler
