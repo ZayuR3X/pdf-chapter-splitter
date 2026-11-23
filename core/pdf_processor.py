@@ -2,7 +2,7 @@ from collections import OrderedDict
 from pathlib import Path
 import re
 import threading
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import unicodedata
 import pymupdf as fitz
 
@@ -306,17 +306,32 @@ class PDFProcessor:
             rendered += ".pdf"
         return rendered
 
+    def _map_parent_chapters(self, sections: List[BookSection]) -> Dict[int, str]:
+        content_levels = [s.level for s in sections if not s.is_front]
+        root_level = min(content_levels) if content_levels else 1
+        current_chapter = ""
+        chapter_map: Dict[int, str] = {}
+
+        for sec in sections:
+            if sec.level <= root_level:
+                current_chapter = sec.title
+            chapter_map[id(sec)] = current_chapter
+
+        return chapter_map
+
     def export_sections(
         self,
         sections: List[BookSection],
         output_dir: str | Path,
         filename_pattern: str = "{index}_{title}",
         smart_crop: bool = True,
+        group_by_chapter: bool = False,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> List[Path]:
         out_path = Path(output_dir)
         out_path.mkdir(parents=True, exist_ok=True)
 
+        chapter_map = self._map_parent_chapters(sections) if group_by_chapter else {}
         selected_sections = [s for s in sections if s.selected]
         created_files: List[Path] = []
         total = len(selected_sections)
@@ -330,7 +345,14 @@ class PDFProcessor:
                     continue
 
                 filename = self.format_output_filename(filename_pattern, idx, section)
-                target_file = out_path / filename
+                target_dir = out_path
+                if group_by_chapter:
+                    parent_title = chapter_map.get(id(section), "")
+                    if parent_title:
+                        target_dir = out_path / self.sanitize_filename(parent_title)
+                        target_dir.mkdir(parents=True, exist_ok=True)
+
+                target_file = target_dir / filename
 
                 part_doc = self._build_masked_section_doc(
                     start_page=section.start_page,
@@ -349,6 +371,58 @@ class PDFProcessor:
                     progress_callback(idx, total, filename)
 
         return created_files
+
+    def export_combined_sections(
+        self,
+        sections: List[BookSection],
+        target_file: str | Path,
+        smart_crop: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> Path:
+        out_file = Path(target_file)
+        selected_sections = [s for s in sections if s.selected and s.start_page <= s.end_page]
+        total = len(selected_sections)
+        if total == 0:
+            raise ValueError("Birleştirilecek geçerli bölüm seçilmedi.")
+
+        with self._lock:
+            if not self.doc:
+                raise RuntimeError("Yüklü bir PDF dosyası bulunamadı.")
+
+            merged_doc = fitz.open()
+            toc_entries: List[List[Any]] = []
+
+            try:
+                for idx, section in enumerate(selected_sections, start=1):
+                    part_doc = self._build_masked_section_doc(
+                        start_page=section.start_page,
+                        end_page=section.end_page,
+                        title=section.title,
+                        next_title=section.next_title,
+                        next_start_page=section.next_start_page,
+                        toc_y=section.toc_y,
+                        smart_crop=smart_crop,
+                    )
+                    if len(part_doc) > 0:
+                        start_in_merged = len(merged_doc) + 1
+                        merged_doc.insert_pdf(part_doc)
+                        toc_entries.append([1, section.title, start_in_merged])
+                    part_doc.close()
+
+                    if progress_callback:
+                        progress_callback(idx, total, section.title)
+
+                if len(merged_doc) == 0:
+                    raise ValueError("Birleştirilecek geçerli sayfa bulunamadı.")
+
+                if toc_entries:
+                    merged_doc.set_toc(toc_entries)
+
+                merged_doc.save(out_file, garbage=3, deflate=True)
+            finally:
+                merged_doc.close()
+
+        return out_file
 
     def export_merged_range(
         self,
