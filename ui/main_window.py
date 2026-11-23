@@ -105,8 +105,9 @@ class MainWindow(QMainWindow):
         self._render_request_id: int = 0
         self._first_fit_done: bool = False
         self._export_worker: Optional[ExportWorker] = None
+        self._is_closing: bool = False
 
-        self.thread_pool = QThreadPool.globalInstance()
+        self.thread_pool = QThreadPool(self)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -155,7 +156,7 @@ class MainWindow(QMainWindow):
             "{title}_s{start}-{end}",
             "DersNotu_{index}_{title}",
         ])
-        self.cmb_presets.currentTextChanged.connect(self.txt_pattern.setText)
+        self.cmb_presets.currentTextChanged.connect(self.on_preset_changed)
         naming_bar.addWidget(self.cmb_presets)
 
         self.lbl_name_preview = QLabel("Örnek: 01_1.1_Konu.pdf")
@@ -192,10 +193,10 @@ class MainWindow(QMainWindow):
 
         tree_controls_2 = QHBoxLayout()
         self.btn_expand_all = QPushButton("Aç")
-        self.btn_expand_all.clicked.connect(lambda: self.tree.expandAll())
+        self.btn_expand_all.clicked.connect(self.expand_all_tree)
 
         self.btn_collapse_all = QPushButton("Daralt")
-        self.btn_collapse_all.clicked.connect(lambda: self.tree.collapseAll())
+        self.btn_collapse_all.clicked.connect(self.collapse_all_tree)
 
         self.btn_check_all = QPushButton("Tümünü Seç")
         self.btn_check_all.clicked.connect(self.select_all_sections)
@@ -220,8 +221,8 @@ class MainWindow(QMainWindow):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.open_tree_context_menu)
 
-        del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.tree)
-        del_shortcut.activated.connect(self.delete_selected_tree_items)
+        self.del_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.tree)
+        self.del_shortcut.activated.connect(self.delete_selected_tree_items)
 
         header = self.tree.header()
         header.setSectionResizeMode(self.COL_TITLE, QHeaderView.ResizeMode.Stretch)
@@ -241,7 +242,7 @@ class MainWindow(QMainWindow):
 
         nav_bar = QHBoxLayout()
         self.btn_prev = QPushButton("< Önceki")
-        self.btn_prev.clicked.connect(lambda: self.show_page(self.current_page - 1))
+        self.btn_prev.clicked.connect(self.show_prev_page)
 
         self.spin_page = QSpinBox()
         self.spin_page.setMinimum(1)
@@ -253,18 +254,18 @@ class MainWindow(QMainWindow):
         self.lbl_page_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         self.btn_next = QPushButton("Sonraki >")
-        self.btn_next.clicked.connect(lambda: self.show_page(self.current_page + 1))
+        self.btn_next.clicked.connect(self.show_next_page)
 
         self.btn_zoom_out = QPushButton("-")
         self.btn_zoom_out.setFixedWidth(28)
-        self.btn_zoom_out.clicked.connect(lambda: self.preview.zoom_out())
+        self.btn_zoom_out.clicked.connect(self.zoom_out_preview)
 
         self.btn_fit = QPushButton("Sığdır")
-        self.btn_fit.clicked.connect(lambda: self.preview.fit_to_width())
+        self.btn_fit.clicked.connect(self.fit_preview_width)
 
         self.btn_zoom_in = QPushButton("+")
         self.btn_zoom_in.setFixedWidth(28)
-        self.btn_zoom_in.clicked.connect(lambda: self.preview.zoom_in())
+        self.btn_zoom_in.clicked.connect(self.zoom_in_preview)
 
         nav_bar.addWidget(self.btn_prev)
         nav_bar.addWidget(self.spin_page)
@@ -357,6 +358,30 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.lbl_status, stretch=1)
         status_bar.addWidget(self.progress_bar)
         root_layout.addLayout(status_bar)
+
+    def on_preset_changed(self, text: str) -> None:
+        self.txt_pattern.setText(text)
+
+    def expand_all_tree(self) -> None:
+        self.tree.expandAll()
+
+    def collapse_all_tree(self) -> None:
+        self.tree.collapseAll()
+
+    def show_prev_page(self) -> None:
+        self.show_page(self.current_page - 1)
+
+    def show_next_page(self) -> None:
+        self.show_page(self.current_page + 1)
+
+    def zoom_out_preview(self) -> None:
+        self.preview.zoom_out()
+
+    def fit_preview_width(self) -> None:
+        self.preview.fit_to_width()
+
+    def zoom_in_preview(self) -> None:
+        self.preview.zoom_in()
 
     def open_pdf_dialog(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -584,7 +609,7 @@ class MainWindow(QMainWindow):
         self.thread_pool.start(task)
 
     def _on_page_rendered(self, request_id: int, page_num: int, png_bytes: Optional[bytes]) -> None:
-        if request_id != self._render_request_id:
+        if self._is_closing or request_id != self._render_request_id:
             return
         self.preview.set_image_bytes(png_bytes)
         if not self._first_fit_done and png_bytes:
@@ -788,5 +813,11 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Kayıt Hatası", f"Dosyalar oluşturulurken hata:\n{error_msg}")
 
     def closeEvent(self, event) -> None:
+        self._is_closing = True
+        self._render_request_id += 1
+        self.thread_pool.clear()
+        self.thread_pool.waitForDone(1500)
+        if self._export_worker and self._export_worker.isRunning():
+            self._export_worker.wait(2000)
         self.processor.close()
         super().closeEvent(event)

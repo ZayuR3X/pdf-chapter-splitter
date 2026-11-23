@@ -4,7 +4,7 @@ import re
 import threading
 from typing import Callable, List, Optional, Tuple
 import unicodedata
-import fitz
+import pymupdf as fitz
 
 from .models import BookSection
 
