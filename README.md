@@ -1,59 +1,43 @@
-# PDF Bölüm Ayırıcı (PDF Chapter Splitter)
+# PDF Chapter Splitter by ZayuR3X
 
-![](assets/preview.png)
+**PySide6** ve **PyMuPDF** kullanılarak geliştirilmiş; kalın ders kitaplarını, teknik dokümanları ve akademik kaynakları içindekiler tablosu (TOC) veya özel sayfa aralıklarına göre hızlıca bölümlere ayıran çapraz platform (Linux, Windows, macOS) masaüstü uygulaması.
 
-Ders kitapları ve teknik PDF dokümanlarını gömülü içindekiler (TOC) hiyerarşisine veya özel sayfa aralıklarına göre bağımsız PDF dosyalarına ayıran, **Python**, **PySide6** ve **PyMuPDF** tabanlı masaüstü uygulaması.
+![](assets/screenshot.png)
 
 ## Özellikler
 
-- **Hiyerarşik İçindekiler Ağacı:** PDF içindeki yer imlerini (bölüm ve alt konu başlıklarını) fiziksel sayfa numaraları, sayfa adetleri ve kitabın kendi sayfa etiketleriyle birlikte ağaç yapısında listeler.
-- **Otomatik Ön Sayfa Filtreleme:** Kapak (`C`), içindekiler, önsöz ve Roma rakamlı (`i`, `ii`, `iv`...) ön sayfaları otomatik tespit ederek gizler ve toplu dışa aktarım dışında bırakır.
-- **Bölüm Maskeleme:** Sayfa ortasında başlayan alt konuların üst kısmında kalan önceki konuya ait metinleri ve geçiş sayfasındaki sonraki konunun alt kısmını PyMuPDF içerik katmanından temizleyerek yalnızca ilgili bölümü bırakır.
-- **Canlı Sayfa Önizleme ve Hızlı Bölme:** Arka plan iş parçacığı (`QThreadPool`) ve bellek önbelleği destekli sayfa görüntüleyici üzerinden başlangıç/bitiş sayfalarını anlık olarak belirleme, listeye ekleme veya tek dosya olarak kaydetme imkânı sunar.
-- **Özelleştirilebilir Dosya Adı Şablonları:** `{index}`, `{title}`, `{book}`, `{start}`, `{end}` ve `{label}` değişkenleriyle çıktı dosyalarını otomatik olarak adlandırır.
-
-## Proje Yapısı
-
-```text
-pdf-chapter-splitter/
-├── core/
-│   ├── __init__.py
-│   ├── models.py           # Bölüm veri modelleri
-│   └── pdf_processor.py    # PyMuPDF analiz, render, maskeleme ve bölme motoru
-├── ui/
-│   ├── __init__.py
-│   ├── main_window.py      # Ana pencere ve kontrol arayüzü
-│   └── widgets.py          # Yakınlaştırma destekli sayfa önizleme bileşeni
-├── main.py                 # Uygulama giriş noktası
-├── requirements.txt        # Bağımlılık listesi
-├── LICENSE                 # MIT Lisansı
-└── README.md
-```
+- **Hiyerarşik İçindekiler Ağacı ve Canlı Arama:** Gömülü yer imlerini (TOC) bölüm ve alt konu hiyerarşisiyle listeler; anlık arama kutusuyla yüzlerce başlık arasında hızlı filtreleme sağlar.
+- **Akıllı Bölüm Maskeleme:** Sayfa ortasında başlayan konuların üst kısmındaki önceki konuya ait metinleri ve geçiş sayfasındaki sonraki konunun başlangıcını otomatik temizler.
+- **Toplu Dışa Aktarma ve Klasörleme:** İşaretli bölümleri arka planda arayüzü dondurmadan ayrı PDF dosyaları olarak dışa aktarır; isteğe bağlı olarak alt konuları bağlı oldukları ana bölüm klasörleri altında gruplar.
+- **Tek PDF Birleştirme:** Ağaçtan seçilen (ardışık olması gerekmeyen) birden fazla bölümü, yeni sayfa numaralarına göre oluşturulmuş içindekiler tablosuyla (TOC) tek bir çalışma PDF'inde birleştirir.
+- **Hızlı Bölme ve Canlı Önizleme:** Gömülü içindekiler tablosu bulunmayan veya özel aralık gerektiren PDF'lerde sayfa önizlemesi üzerinden başlangıç/bitiş belirleyerek anında PDF kaydeder.
+- **Esnek Düzenleme ve Kısayollar:** Sürükle-bırak ile PDF açma, çift tıklamayla satır içi başlık düzenleme, çok adımlı silme geri alma (`Ctrl+Z`), akıllı seçim menüsü (`Ana Bölümleri Seç`, `Görünür Tümünü Seç`) ve son kullanılan klasörleri hatırlama desteği sunar.
+- **Özelleştirilebilir Dosya Adlandırma:** `{index}`, `{title}`, `{book}`, `{start}`, `{end}` ve `{label}` değişkenleriyle dinamik çıktı dosya adları oluşturur.
 
 ## Kurulum ve Çalıştırma
 
-1. Depoyu klonlayın ve proje dizinine geçin:
-   ```bash
-   git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
-   cd pdf-chapter-splitter
-   ```
+### Gereksinimler
+- Python 3.10 veya üzeri
 
-2. Sanal ortam oluşturup etkinleştirin:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
+### Linux / macOS
+```bash
+git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
+cd pdf-chapter-splitter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
 
-3. Gerekli paketleri kurun ve uygulamayı başlatın:
-   ```bash
-   pip install -r requirements.txt
-   python main.py
-   ```
-
-## Kullanım
-
-- **Toplu Bölüm Ayırma:** Sol paneldeki içindekiler ağacından dışa aktarmak istediğiniz bölüm veya alt konuları işaretleyin, üst çubuktan dosya adı şablonunu belirleyin ve **Seçili Bölümleri Dışa Aktar** butonuna tıklayın.
-- **Hızlı Manuel Aralık:** Sağ panelde sayfalar arasında gezinirken aktif sayfa otomatik olarak başlangıç seçilir; **Sabitle** ve **Bitiş Yap** butonlarıyla istediğiniz aralığı belirleyip doğrudan **PDF Kaydet** ile dışa aktarabilir veya **+ Listeye Ekle** ile toplu listeye dahil edebilirsiniz.
+### Windows (CMD / PowerShell)
+```cmd
+git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
+cd pdf-chapter-splitter
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
 
 ## Lisans
 
