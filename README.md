@@ -2,7 +2,7 @@
 
 A desktop utility for splitting large PDF books and technical documents into individual chapters or custom study packets using their embedded Table of Contents (TOC).
 
-!(assets/screenshot.png)
+![](assets/screenshot.png)
 
 ## Features
 
