@@ -7,6 +7,7 @@ import unicodedata
 import pymupdf as fitz
 
 from .models import BookSection
+from .i18n import tr
 
 
 IGNORED_TITLE_KEYWORDS = {

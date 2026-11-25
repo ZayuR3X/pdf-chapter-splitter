@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, QPoint, QRunnable, QSettings, Qt, QThread, QThreadPool, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import get_language, set_language, tr
 from core.models import BookSection
 from core.pdf_processor import PDFProcessor
 from ui.widgets import PagePreviewWidget
@@ -113,12 +114,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PDF Bölüm Ayırıcı")
+        self.settings = QSettings("ZayuR3X", "PDFChapterSplitter")
+        saved_lang = str(self.settings.value("language", "en"))
+        set_language(saved_lang)
+
         self.setMinimumSize(920, 600)
         self.resize(1220, 760)
         self.setAcceptDrops(True)
 
-        self.settings = QSettings("ZayuR3X", "PDFChapterSplitter")
         self.processor = PDFProcessor()
         self.sections: List[BookSection] = []
         self._undo_stack: List[List[BookSection]] = []
@@ -129,9 +132,17 @@ class MainWindow(QMainWindow):
         self._first_fit_done: bool = False
         self._export_worker: Optional[ExportWorker] = None
         self._is_closing: bool = False
+        self._status_key: str = "status_ready"
+        self._status_kwargs: Dict[str, Any] = {}
 
         self.thread_pool = QThreadPool(self)
         self._setup_ui()
+        self.retranslate_ui()
+
+    def _set_status(self, key: str, **kwargs: Any) -> None:
+        self._status_key = key
+        self._status_kwargs = kwargs
+        self.lbl_status.setText(tr(key, **kwargs))
 
     def _get_saved_dir(self, key: str) -> str:
         val = str(self.settings.value(key, ""))
@@ -167,60 +178,56 @@ class MainWindow(QMainWindow):
 
         top_bar = QHBoxLayout()
 
-        self.btn_open = QPushButton("PDF Kitap Aç")
-        self.btn_open.setToolTip("PDF seç veya dosyayı pencereye sürükleyip bırak")
+        self.btn_open = QPushButton()
         self.btn_open.clicked.connect(self.open_pdf_dialog)
 
-        self.lbl_file_info = QLabel("Henüz dosya yüklenmedi (PDF dosyasını sürükleyip bırakabilirsiniz)")
+        self.lbl_file_info = QLabel()
         self.lbl_file_info.setStyleSheet("font-weight: bold; padding-left: 6px;")
         self.lbl_file_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
-        self.btn_export_combined = QPushButton("Tek PDF Birleştir")
+        self.btn_export_combined = QPushButton()
         self.btn_export_combined.setEnabled(False)
-        self.btn_export_combined.setToolTip(
-            "İşaretli bölümleri (ardışık olmasalar bile) içindekiler tablosuyla tek PDF dosyasında birleştirir"
-        )
         self.btn_export_combined.setStyleSheet(
             "background-color: #00838f; color: white; font-weight: bold; padding: 5px 10px;"
         )
         self.btn_export_combined.clicked.connect(self.export_combined_pdf)
 
-        self.btn_export_batch = QPushButton("Seçili Bölümleri Dışa Aktar")
+        self.btn_export_batch = QPushButton()
         self.btn_export_batch.setEnabled(False)
-        self.btn_export_batch.setToolTip("İşaretli her bölümü ayrı bir PDF dosyası olarak dışa aktarır")
         self.btn_export_batch.setStyleSheet(
             "background-color: #1565c0; color: white; font-weight: bold; padding: 5px 12px;"
         )
         self.btn_export_batch.clicked.connect(self.export_checked_sections)
 
+        self.cmb_lang = QComboBox()
+        self.cmb_lang.setFixedWidth(60)
+        self.cmb_lang.addItem("EN", "en")
+        self.cmb_lang.addItem("TR", "tr")
+        lang_idx = self.cmb_lang.findData(get_language())
+        if lang_idx >= 0:
+            self.cmb_lang.setCurrentIndex(lang_idx)
+        self.cmb_lang.currentIndexChanged.connect(self.on_language_changed)
+
         top_bar.addWidget(self.btn_open)
         top_bar.addWidget(self.lbl_file_info, stretch=1)
         top_bar.addWidget(self.btn_export_combined)
         top_bar.addWidget(self.btn_export_batch)
+        top_bar.addWidget(self.cmb_lang)
         root_layout.addLayout(top_bar)
 
         naming_bar = QHBoxLayout()
-        naming_bar.addWidget(QLabel("Dosya Adı:"))
+        self.lbl_filename = QLabel()
+        naming_bar.addWidget(self.lbl_filename)
 
         self.txt_pattern = QLineEdit("{index}_{title}")
-        self.txt_pattern.setPlaceholderText("Örn: Fizik1_{index}_{title}")
-        self.txt_pattern.setToolTip(
-            "Değişkenler: {index}, {title}, {book}, {start}, {end}, {label}"
-        )
         self.txt_pattern.textChanged.connect(self.update_filename_preview)
         naming_bar.addWidget(self.txt_pattern, stretch=2)
 
         self.cmb_presets = QComboBox()
-        self.cmb_presets.addItems([
-            "{index}_{title}",
-            "{book}_{index}_{title}",
-            "{title}_s{start}-{end}",
-            "DersNotu_{index}_{title}",
-        ])
         self.cmb_presets.currentTextChanged.connect(self.on_preset_changed)
         naming_bar.addWidget(self.cmb_presets)
 
-        self.lbl_name_preview = QLabel("Örnek: 01_1.1_Konu.pdf")
+        self.lbl_name_preview = QLabel()
         self.lbl_name_preview.setStyleSheet("color: #4caf50; font-weight: bold; padding-left: 6px;")
         self.lbl_name_preview.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         naming_bar.addWidget(self.lbl_name_preview, stretch=2)
@@ -236,22 +243,15 @@ class MainWindow(QMainWindow):
         left_layout.setSpacing(4)
 
         tree_controls_1 = QHBoxLayout()
-        self.chk_hide_front = QCheckBox("Ön Sayfaları Gizle")
+        self.chk_hide_front = QCheckBox()
         self.chk_hide_front.setChecked(True)
         self.chk_hide_front.toggled.connect(self.populate_tree)
 
-        self.chk_smart_crop = QCheckBox("Bölüm Maskeleme")
+        self.chk_smart_crop = QCheckBox()
         self.chk_smart_crop.setChecked(True)
-        self.chk_smart_crop.setToolTip(
-            "Sayfa ortasında başlayan konuların üstündeki ve geçiş sayfasındaki sonraki konunun "
-            "altındaki kısımları temizler."
-        )
 
-        self.chk_group_folders = QCheckBox("Bölüme Göre Klasörle")
+        self.chk_group_folders = QCheckBox()
         self.chk_group_folders.setChecked(False)
-        self.chk_group_folders.setToolTip(
-            "Toplu dışa aktarmada alt konuları bağlı oldukları ana bölüm klasörünün içine kaydeder."
-        )
 
         tree_controls_1.addWidget(self.chk_hide_front)
         tree_controls_1.addWidget(self.chk_smart_crop)
@@ -260,43 +260,36 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(tree_controls_1)
 
         self.txt_tree_search = QLineEdit()
-        self.txt_tree_search.setPlaceholderText("İçindekilerde ara... (Örn: Problems, 1.2, Review)")
         self.txt_tree_search.setClearButtonEnabled(True)
         self.txt_tree_search.textChanged.connect(self.filter_tree)
         left_layout.addWidget(self.txt_tree_search)
 
         tree_controls_2 = QHBoxLayout()
-        self.btn_expand_all = QPushButton("Aç")
-        self.btn_expand_all.setToolTip("Tüm alt başlıkları genişletir")
+        self.btn_expand_all = QPushButton()
         self.btn_expand_all.clicked.connect(self.expand_all_tree)
 
-        self.btn_collapse_all = QPushButton("Daralt")
-        self.btn_collapse_all.setToolTip("Alt başlıkları gizleyerek yalnızca ana bölümleri gösterir")
+        self.btn_collapse_all = QPushButton()
         self.btn_collapse_all.clicked.connect(self.collapse_all_tree)
 
-        self.btn_select_menu = QPushButton("Seç")
+        self.btn_select_menu = QPushButton()
         self.btn_select_menu.setEnabled(False)
-        self.btn_select_menu.setToolTip("Toplu seçim seçenekleri")
         select_menu = QMenu(self.btn_select_menu)
-        act_select_chapters = select_menu.addAction("Ana Bölümleri Seç")
-        act_select_chapters.triggered.connect(self.select_chapters_only)
-        act_select_all = select_menu.addAction("Görünür Tümünü Seç")
-        act_select_all.triggered.connect(self.select_all_visible)
+        self.act_select_chapters = select_menu.addAction("")
+        self.act_select_chapters.triggered.connect(self.select_chapters_only)
+        self.act_select_all = select_menu.addAction("")
+        self.act_select_all.triggered.connect(self.select_all_visible)
         self.btn_select_menu.setMenu(select_menu)
 
-        self.btn_uncheck_all = QPushButton("Seçimi Temizle")
+        self.btn_uncheck_all = QPushButton()
         self.btn_uncheck_all.setEnabled(False)
-        self.btn_uncheck_all.setToolTip("İşaretli tüm onay kutularını kaldırır")
         self.btn_uncheck_all.clicked.connect(self.uncheck_all_sections)
 
-        self.btn_delete_selected = QPushButton("Sil")
+        self.btn_delete_selected = QPushButton()
         self.btn_delete_selected.setEnabled(False)
-        self.btn_delete_selected.setToolTip("Seçili satırları listeden çıkarır (Delete)")
         self.btn_delete_selected.clicked.connect(self.delete_selected_tree_items)
 
-        self.btn_undo_delete = QPushButton("Geri Al")
+        self.btn_undo_delete = QPushButton()
         self.btn_undo_delete.setEnabled(False)
-        self.btn_undo_delete.setToolTip("Son silinen öğeleri geri getirir (Ctrl+Z)")
         self.btn_undo_delete.clicked.connect(self.undo_delete)
 
         tree_controls_2.addWidget(self.btn_expand_all)
@@ -310,9 +303,6 @@ class MainWindow(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels(
-            ["İçindekiler (Bölüm / Konu Başlığı)", "Başlangıç", "Bitiş", "Sayfa", "Kitap No"]
-        )
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)
@@ -343,7 +333,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(4)
 
         nav_bar = QHBoxLayout()
-        self.btn_prev = QPushButton("< Önceki")
+        self.btn_prev = QPushButton()
         self.btn_prev.clicked.connect(self.show_prev_page)
 
         self.spin_page = QSpinBox()
@@ -352,17 +342,17 @@ class MainWindow(QMainWindow):
         self.spin_page.setKeyboardTracking(False)
         self.spin_page.valueChanged.connect(self.show_page)
 
-        self.lbl_page_status = QLabel("Sayfa: 0 / 0")
+        self.lbl_page_status = QLabel()
         self.lbl_page_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
-        self.btn_next = QPushButton("Sonraki >")
+        self.btn_next = QPushButton()
         self.btn_next.clicked.connect(self.show_next_page)
 
         self.btn_zoom_out = QPushButton("-")
         self.btn_zoom_out.setFixedWidth(28)
         self.btn_zoom_out.clicked.connect(self.zoom_out_preview)
 
-        self.btn_fit = QPushButton("Sığdır")
+        self.btn_fit = QPushButton()
         self.btn_fit.clicked.connect(self.fit_preview_width)
 
         self.btn_zoom_in = QPushButton("+")
@@ -381,61 +371,61 @@ class MainWindow(QMainWindow):
         self.preview = PagePreviewWidget()
         right_layout.addWidget(self.preview, stretch=1)
 
-        range_group = QGroupBox("Hızlı Bölme")
-        range_vbox = QVBoxLayout(range_group)
+        self.range_group = QGroupBox()
+        range_vbox = QVBoxLayout(self.range_group)
         range_vbox.setSpacing(4)
 
         row0 = QHBoxLayout()
-        self.chk_auto_start = QCheckBox("Aktif sayfayı başlangıç al")
+        self.chk_auto_start = QCheckBox()
         self.chk_auto_start.setChecked(True)
         row0.addWidget(self.chk_auto_start)
 
-        self.lbl_range_summary = QLabel("0 sayfa")
+        self.lbl_range_summary = QLabel()
         self.lbl_range_summary.setStyleSheet("font-weight: bold; color: #64b5f6;")
         row0.addStretch()
         row0.addWidget(self.lbl_range_summary)
         range_vbox.addLayout(row0)
 
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Başlangıç:"))
+        self.lbl_start = QLabel()
+        row1.addWidget(self.lbl_start)
         self.spin_range_start = QSpinBox()
         self.spin_range_start.setMinimum(1)
         self.spin_range_start.setMaximum(1)
         self.spin_range_start.valueChanged.connect(self.on_manual_start_edited)
         row1.addWidget(self.spin_range_start)
 
-        self.btn_set_start_here = QPushButton("Sabitle")
-        self.btn_set_start_here.setToolTip("Aktif sayfayı başlangıç olarak sabitler")
+        self.btn_set_start_here = QPushButton()
         self.btn_set_start_here.clicked.connect(self.lock_current_page_as_start)
         row1.addWidget(self.btn_set_start_here)
 
         row1.addSpacing(8)
-        row1.addWidget(QLabel("Bitiş:"))
+        self.lbl_end = QLabel()
+        row1.addWidget(self.lbl_end)
         self.spin_range_end = QSpinBox()
         self.spin_range_end.setMinimum(1)
         self.spin_range_end.setMaximum(1)
         self.spin_range_end.valueChanged.connect(self.update_range_summary)
         row1.addWidget(self.spin_range_end)
 
-        self.btn_set_end_here = QPushButton("Bitiş Yap")
-        self.btn_set_end_here.setToolTip("Aktif sayfayı bitiş sayfası yapar")
+        self.btn_set_end_here = QPushButton()
         self.btn_set_end_here.clicked.connect(self.set_current_page_as_range_end)
         row1.addWidget(self.btn_set_end_here)
         row1.addStretch()
         range_vbox.addLayout(row1)
 
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Ad:"))
+        self.lbl_name = QLabel()
+        row2.addWidget(self.lbl_name)
         self.txt_range_title = QLineEdit()
-        self.txt_range_title.setPlaceholderText("Bölüm adı...")
         self.txt_range_title.textChanged.connect(self.update_filename_preview)
         row2.addWidget(self.txt_range_title, stretch=1)
 
-        self.btn_add_to_tree = QPushButton("+ Listeye Ekle")
+        self.btn_add_to_tree = QPushButton()
         self.btn_add_to_tree.clicked.connect(self.add_custom_range_to_tree)
         row2.addWidget(self.btn_add_to_tree)
 
-        self.btn_save_range = QPushButton("PDF Kaydet")
+        self.btn_save_range = QPushButton()
         self.btn_save_range.setEnabled(False)
         self.btn_save_range.setStyleSheet(
             "background-color: #2e7d32; color: white; font-weight: bold; padding: 5px 12px;"
@@ -444,7 +434,7 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.btn_save_range)
         range_vbox.addLayout(row2)
 
-        right_layout.addWidget(range_group)
+        right_layout.addWidget(self.range_group)
 
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
@@ -452,7 +442,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(splitter, stretch=1)
 
         status_bar = QHBoxLayout()
-        self.lbl_status = QLabel("Hazır")
+        self.lbl_status = QLabel()
         self.lbl_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -461,8 +451,121 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.progress_bar)
         root_layout.addLayout(status_bar)
 
+    def on_language_changed(self, index: int) -> None:
+        lang = self.cmb_lang.itemData(index)
+        if not lang or lang == get_language():
+            return
+        set_language(lang)
+        self.settings.setValue("language", lang)
+        self.retranslate_ui()
+
+    def retranslate_ui(self) -> None:
+        self.setWindowTitle(tr("app_title"))
+
+        self.btn_open.setText(tr("btn_open"))
+        self.btn_open.setToolTip(tr("btn_open_tip"))
+        self.cmb_lang.setToolTip(tr("lang_tooltip"))
+
+        if self.processor.total_pages > 0 and self.processor.file_path:
+            self.lbl_file_info.setText(
+                tr("file_info", name=self.processor.file_path.name, total=self.processor.total_pages)
+            )
+        else:
+            self.lbl_file_info.setText(tr("no_file_loaded"))
+
+        self.btn_export_combined.setToolTip(tr("btn_combine_tip"))
+        self.btn_export_batch.setToolTip(tr("btn_export_tip"))
+
+        self.lbl_filename.setText(tr("lbl_filename"))
+        self.txt_pattern.setPlaceholderText(tr("pattern_placeholder"))
+        self.txt_pattern.setToolTip(tr("pattern_tip"))
+
+        prev_preset_idx = max(0, self.cmb_presets.currentIndex())
+        self.cmb_presets.blockSignals(True)
+        self.cmb_presets.clear()
+        self.cmb_presets.addItems([
+            "{index}_{title}",
+            "{book}_{index}_{title}",
+            tr("preset_pages"),
+            tr("preset_notes"),
+        ])
+        self.cmb_presets.setCurrentIndex(min(prev_preset_idx, self.cmb_presets.count() - 1))
+        self.cmb_presets.blockSignals(False)
+
+        self.chk_hide_front.setText(tr("chk_hide_front"))
+        self.chk_smart_crop.setText(tr("chk_smart_crop"))
+        self.chk_smart_crop.setToolTip(tr("chk_smart_crop_tip"))
+        self.chk_group_folders.setText(tr("chk_group_folders"))
+        self.chk_group_folders.setToolTip(tr("chk_group_folders_tip"))
+
+        self.txt_tree_search.setPlaceholderText(tr("search_placeholder"))
+
+        self.btn_expand_all.setText(tr("btn_expand"))
+        self.btn_expand_all.setToolTip(tr("btn_expand_tip"))
+        self.btn_collapse_all.setText(tr("btn_collapse"))
+        self.btn_collapse_all.setToolTip(tr("btn_collapse_tip"))
+        self.btn_select_menu.setText(tr("btn_select"))
+        self.btn_select_menu.setToolTip(tr("btn_select_tip"))
+        self.act_select_chapters.setText(tr("act_select_chapters"))
+        self.act_select_all.setText(tr("act_select_all"))
+        self.btn_uncheck_all.setToolTip(tr("btn_uncheck_tip"))
+        self.btn_delete_selected.setText(tr("btn_delete"))
+        self.btn_delete_selected.setToolTip(tr("btn_delete_tip"))
+        self.btn_undo_delete.setText(tr("btn_undo"))
+        self.btn_undo_delete.setToolTip(tr("btn_undo_tip"))
+
+        self.tree.setHeaderLabels([
+            tr("col_title"),
+            tr("col_start"),
+            tr("col_end"),
+            tr("col_pages"),
+            tr("col_book_no"),
+        ])
+
+        self._updating_tree = True
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            idx = item.data(self.COL_TITLE, self.ROLE_INDEX)
+            if idx is not None and 0 <= idx < len(self.sections):
+                item.setText(self.COL_COUNT, tr("page_span_short", count=self.sections[idx].page_count))
+            iterator += 1
+        self._updating_tree = False
+
+        self.btn_prev.setText(tr("btn_prev"))
+        self.btn_next.setText(tr("btn_next"))
+        self.btn_fit.setText(tr("btn_fit"))
+        if self.processor.total_pages > 0:
+            label = self.processor.get_page_label(self.current_page)
+            self.lbl_page_status.setText(
+                tr("page_status", current=self.current_page, total=self.processor.total_pages, label=label)
+            )
+        else:
+            self.lbl_page_status.setText(tr("page_status_empty"))
+
+        self.preview.retranslate_ui()
+
+        self.range_group.setTitle(tr("quick_split"))
+        self.chk_auto_start.setText(tr("chk_auto_start"))
+        self.lbl_start.setText(tr("lbl_start"))
+        self.btn_set_start_here.setText(tr("btn_lock_start"))
+        self.btn_set_start_here.setToolTip(tr("btn_lock_start_tip"))
+        self.lbl_end.setText(tr("lbl_end"))
+        self.btn_set_end_here.setText(tr("btn_set_end"))
+        self.btn_set_end_here.setToolTip(tr("btn_set_end_tip"))
+        self.lbl_name.setText(tr("lbl_name"))
+        self.txt_range_title.setPlaceholderText(tr("range_title_placeholder"))
+        self.btn_add_to_tree.setText(tr("btn_add_list"))
+        self.btn_save_range.setText(tr("btn_save_pdf"))
+
+        self._update_checked_count()
+        self.update_range_summary()
+        self.update_filename_preview()
+        self.lbl_status.setText(tr(self._status_key, **self._status_kwargs))
+
     def on_preset_changed(self, text: str) -> None:
-        self.txt_pattern.setText(text)
+        if text:
+            self.txt_pattern.setText(text)
 
     def expand_all_tree(self) -> None:
         self.tree.expandAll()
@@ -488,15 +591,11 @@ class MainWindow(QMainWindow):
     def _update_checked_count(self) -> None:
         count = sum(1 for sec in self.sections if sec.selected)
         has_doc = self.processor.total_pages > 0
-        self.btn_uncheck_all.setText(f"Seçimi Temizle ({count})" if count else "Seçimi Temizle")
+        self.btn_uncheck_all.setText(tr("btn_uncheck_count", count=count) if count else tr("btn_uncheck"))
         self.btn_uncheck_all.setEnabled(count > 0)
-        self.btn_export_combined.setText(
-            f"Tek PDF Birleştir ({count})" if count else "Tek PDF Birleştir"
-        )
+        self.btn_export_combined.setText(tr("btn_combine_count", count=count) if count else tr("btn_combine"))
         self.btn_export_combined.setEnabled(has_doc and count > 0)
-        self.btn_export_batch.setText(
-            f"Seçili Bölümleri Dışa Aktar ({count})" if count else "Seçili Bölümleri Dışa Aktar"
-        )
+        self.btn_export_batch.setText(tr("btn_export_count", count=count) if count else tr("btn_export"))
         self.btn_export_batch.setEnabled(has_doc and count > 0)
 
     def _sync_tree_checkstates(self) -> None:
@@ -517,7 +616,7 @@ class MainWindow(QMainWindow):
     def open_pdf_dialog(self) -> None:
         start_dir = self._get_saved_dir("last_open_dir")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "PDF Kitap Seç", start_dir, "PDF Dosyaları (*.pdf)"
+            self, tr("dlg_open_title"), start_dir, tr("dlg_pdf_filter")
         )
         if file_path:
             self._load_pdf_file(file_path)
@@ -526,7 +625,7 @@ class MainWindow(QMainWindow):
         try:
             self.sections = self.processor.load_pdf(file_path)
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"PDF açılırken hata oluştu:\n{exc}")
+            QMessageBox.critical(self, tr("msg_error_title"), tr("msg_open_error", error=exc))
             return
 
         self._save_dir("last_open_dir", file_path)
@@ -537,7 +636,7 @@ class MainWindow(QMainWindow):
             sec.selected = False
 
         total = self.processor.total_pages
-        self.lbl_file_info.setText(f"{Path(file_path).name}  ({total} sayfa)")
+        self.lbl_file_info.setText(tr("file_info", name=Path(file_path).name, total=total))
         self.btn_save_range.setEnabled(total > 0)
         self._first_fit_done = False
         self.chk_auto_start.setChecked(True)
@@ -565,7 +664,7 @@ class MainWindow(QMainWindow):
         self.populate_tree()
         self.update_range_summary()
         self.update_filename_preview()
-        self.lbl_status.setText(f"Yüklendi: {Path(file_path).name}")
+        self._set_status("status_loaded", name=Path(file_path).name)
 
         if total > 0:
             self.show_page(initial_start)
@@ -592,7 +691,7 @@ class MainWindow(QMainWindow):
             if hide_front and sec.is_front:
                 continue
 
-            page_span = f"{sec.page_count} s."
+            page_span = tr("page_span_short", count=sec.page_count)
             book_no = (
                 sec.page_label
                 if sec.page_label == sec.end_label or not sec.end_label
@@ -683,8 +782,8 @@ class MainWindow(QMainWindow):
             item.setSelected(True)
 
         menu = QMenu(self)
-        rename_action = menu.addAction("Başlığı Düzenle")
-        delete_action = menu.addAction("Listeden Sil")
+        rename_action = menu.addAction(tr("ctx_rename"))
+        delete_action = menu.addAction(tr("ctx_delete"))
         chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
         if chosen == rename_action:
             self.tree.editItem(item, self.COL_TITLE)
@@ -722,7 +821,7 @@ class MainWindow(QMainWindow):
         self._active_section = None
         self.populate_tree()
         self.btn_undo_delete.setEnabled(True)
-        self.lbl_status.setText(f"{len(indices)} öğe listeden silindi.")
+        self._set_status("status_deleted", count=len(indices))
 
     def undo_delete(self) -> None:
         if not self._undo_stack:
@@ -731,7 +830,7 @@ class MainWindow(QMainWindow):
         self._active_section = None
         self.populate_tree()
         self.btn_undo_delete.setEnabled(bool(self._undo_stack))
-        self.lbl_status.setText("Son silme işlemi geri alındı.")
+        self._set_status("status_undone")
 
     def on_tree_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if self._updating_tree or column != self.COL_TITLE:
@@ -750,7 +849,7 @@ class MainWindow(QMainWindow):
             if self._active_section is sec:
                 self.txt_range_title.setText(new_title)
             self.update_filename_preview()
-            self.lbl_status.setText(f"Başlık güncellendi: {new_title}")
+            self._set_status("status_renamed", title=new_title)
         elif not new_title:
             self._updating_tree = True
             item.setText(self.COL_TITLE, sec.title)
@@ -850,7 +949,7 @@ class MainWindow(QMainWindow):
 
         label = self.processor.get_page_label(clamped)
         self.lbl_page_status.setText(
-            f"Fiziksel: {clamped}/{self.processor.total_pages} | Kitap: {label}"
+            tr("page_status", current=clamped, total=self.processor.total_pages, label=label)
         )
 
         if self.chk_auto_start.isChecked():
@@ -897,7 +996,7 @@ class MainWindow(QMainWindow):
         self.spin_range_start.setValue(self.current_page)
         if self.spin_range_end.value() < self.current_page:
             self.spin_range_end.setValue(self.current_page)
-        self.lbl_status.setText(f"Başlangıç {self.current_page} olarak sabitlendi.")
+        self._set_status("status_start_locked", page=self.current_page)
 
     def set_current_page_as_range_end(self) -> None:
         if self.processor.total_pages == 0:
@@ -908,17 +1007,23 @@ class MainWindow(QMainWindow):
         self.spin_range_end.setValue(self.current_page)
 
     def update_range_summary(self) -> None:
+        if self.processor.total_pages == 0:
+            self.lbl_range_summary.setText(tr("range_zero"))
+            self.lbl_range_summary.setStyleSheet("font-weight: bold; color: #64b5f6;")
+            return
+
         s_p = self.spin_range_start.value()
         e_p = self.spin_range_end.value()
         if s_p > e_p:
-            self.lbl_range_summary.setText("Geçersiz aralık!")
+            self.lbl_range_summary.setText(tr("range_invalid"))
             self.lbl_range_summary.setStyleSheet("font-weight: bold; color: #ef5350;")
             return
 
         count = e_p - s_p + 1
         s_lbl = self.processor.get_page_label(s_p)
         e_lbl = self.processor.get_page_label(e_p)
-        self.lbl_range_summary.setText(f"{count} sayfa (Kitap s. {s_lbl}–{e_lbl})")
+        key = "range_summary_one" if count == 1 else "range_summary_many"
+        self.lbl_range_summary.setText(tr(key, count=count, start=s_lbl, end=e_lbl))
         self.lbl_range_summary.setStyleSheet("font-weight: bold; color: #64b5f6;")
         self.update_filename_preview()
 
@@ -926,7 +1031,7 @@ class MainWindow(QMainWindow):
         pattern = self.txt_pattern.text()
         s_p = self.spin_range_start.value()
         e_p = self.spin_range_end.value()
-        title = self.txt_range_title.text().strip() or "1.1_Konu"
+        title = self.txt_range_title.text().strip() or tr("sample_topic")
 
         sample_sec = BookSection(
             title=title,
@@ -935,7 +1040,7 @@ class MainWindow(QMainWindow):
             page_label=self.processor.get_page_label(s_p) or "1",
         )
         sample_name = self.processor.format_output_filename(pattern, 1, sample_sec)
-        self.lbl_name_preview.setText(f"Örnek: {sample_name}")
+        self.lbl_name_preview.setText(tr("name_preview", name=sample_name))
 
     def add_custom_range_to_tree(self) -> None:
         if self.processor.total_pages == 0:
@@ -943,10 +1048,10 @@ class MainWindow(QMainWindow):
         s_p = self.spin_range_start.value()
         e_p = self.spin_range_end.value()
         if s_p > e_p:
-            QMessageBox.warning(self, "Geçersiz Aralık", "Başlangıç sayfası bitişten büyük olamaz.")
+            QMessageBox.warning(self, tr("msg_invalid_range_title"), tr("msg_start_gt_end"))
             return
 
-        title = self.txt_range_title.text().strip() or f"Bolum_s{s_p}-{e_p}"
+        title = self.txt_range_title.text().strip() or tr("default_range_title", start=s_p, end=e_p)
         next_t = self._active_section.next_title if self._active_section else ""
         next_sp = self._active_section.next_start_page if self._active_section else None
 
@@ -964,7 +1069,7 @@ class MainWindow(QMainWindow):
         )
         self.sections.append(new_sec)
         self.populate_tree()
-        self.lbl_status.setText(f"Listeye eklendi: {title} ({s_p}–{e_p})")
+        self._set_status("status_added", title=title, start=s_p, end=e_p)
 
     def save_single_range_pdf(self) -> None:
         if self.processor.total_pages == 0:
@@ -975,12 +1080,12 @@ class MainWindow(QMainWindow):
         if s_p > e_p:
             QMessageBox.warning(
                 self,
-                "Geçersiz Aralık",
-                f"Başlangıç sayfası ({s_p}), bitiş sayfasından ({e_p}) büyük olamaz.",
+                tr("msg_invalid_range_title"),
+                tr("msg_start_gt_end_detail", start=s_p, end=e_p),
             )
             return
 
-        title = self.txt_range_title.text().strip() or f"Bolum_s{s_p}-{e_p}"
+        title = self.txt_range_title.text().strip() or tr("default_range_title", start=s_p, end=e_p)
         next_t = self._active_section.next_title if self._active_section else ""
         next_sp = self._active_section.next_start_page if self._active_section else None
 
@@ -996,9 +1101,9 @@ class MainWindow(QMainWindow):
 
         save_path, _ = QFileDialog.getSaveFileName(
             self,
-            f"PDF Kaydet (Sayfa {s_p} – {e_p})",
+            tr("dlg_save_range_title", start=s_p, end=e_p),
             initial_target,
-            "PDF Dosyası (*.pdf)",
+            tr("dlg_pdf_filter"),
         )
         if not save_path:
             return
@@ -1015,26 +1120,27 @@ class MainWindow(QMainWindow):
                 next_start_page=next_sp,
                 smart_crop=self.chk_smart_crop.isChecked(),
             )
-            QMessageBox.information(
-                self,
-                "Tamamlandı",
-                f"Bölüm başarıyla kaydedildi:\n{out}",
-            )
+            QMessageBox.information(self, tr("msg_done_title"), tr("msg_range_saved", path=out))
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"Kayıt hatası:\n{exc}")
+            QMessageBox.critical(self, tr("msg_error_title"), tr("msg_save_error", error=exc))
 
     def _validate_selected_sections(self) -> Optional[List[BookSection]]:
         selected = [s for s in self.sections if s.selected]
         if not selected:
-            QMessageBox.warning(self, "Uyarı", "Dışa aktarmak için ağaçtan en az bir başlık seçin.")
+            QMessageBox.warning(self, tr("msg_warning_title"), tr("msg_select_at_least_one"))
             return None
 
         for sec in selected:
             if sec.start_page > sec.end_page:
                 QMessageBox.warning(
                     self,
-                    "Geçersiz Sayfa Aralığı",
-                    f"'{sec.title}' bölümünde başlangıç ({sec.start_page}) bitişten ({sec.end_page}) büyük.",
+                    tr("msg_invalid_section_range_title"),
+                    tr(
+                        "msg_invalid_section_range",
+                        title=sec.title,
+                        start=sec.start_page,
+                        end=sec.end_page,
+                    ),
                 )
                 return None
         return selected
@@ -1044,15 +1150,15 @@ class MainWindow(QMainWindow):
         if not selected:
             return
 
-        suggested_name = f"{self.processor.book_stem}_Secili_Bolumler.pdf"
+        suggested_name = f"{self.processor.book_stem}_{tr('combined_suffix')}.pdf"
         last_save_dir = self._get_saved_dir("last_save_dir")
         initial_target = str(Path(last_save_dir) / suggested_name) if last_save_dir else suggested_name
 
         save_path, _ = QFileDialog.getSaveFileName(
             self,
-            f"Seçili {len(selected)} Bölümü Tek PDF Olarak Kaydet",
+            tr("dlg_combine_title", count=len(selected)),
             initial_target,
-            "PDF Dosyası (*.pdf)",
+            tr("dlg_pdf_filter"),
         )
         if not save_path:
             return
@@ -1085,7 +1191,7 @@ class MainWindow(QMainWindow):
 
         last_save_dir = self._get_saved_dir("last_save_dir")
         out_dir = QFileDialog.getExistingDirectory(
-            self, "Bölümlerin Kaydedileceği Klasörü Seç", last_save_dir
+            self, tr("dlg_export_dir_title"), last_save_dir
         )
         if not out_dir:
             return
@@ -1113,33 +1219,35 @@ class MainWindow(QMainWindow):
 
     def _on_export_progress(self, current: int, total: int, filename: str) -> None:
         self.progress_bar.setValue(current)
-        self.lbl_status.setText(f"İşleniyor ({current}/{total}): {filename}")
+        self._set_status("status_processing", current=current, total=total, name=filename)
 
     def _on_combined_completed(self, created: list, out_file: str) -> None:
         self.progress_bar.setVisible(False)
         self._update_checked_count()
-        self.lbl_status.setText(f"Tamamlandı: Tek PDF kaydedildi ({Path(out_file).name}).")
+        self._set_status("status_combined_done", name=Path(out_file).name)
         QMessageBox.information(
             self,
-            "Tamamlandı",
-            f"Seçili bölümler tek PDF dosyasında birleştirildi:\n{out_file}",
+            tr("msg_done_title"),
+            tr("msg_combined_saved", path=out_file),
         )
 
     def _on_export_completed(self, created: list, out_dir: str) -> None:
         self.progress_bar.setVisible(False)
         self._update_checked_count()
-        self.lbl_status.setText(f"Tamamlandı: {len(created)} dosya oluşturuldu.")
+        self._set_status("status_export_done", count=len(created))
         QMessageBox.information(
             self,
-            "Tamamlandı",
-            f"Toplam {len(created)} adet PDF bölümü başarıyla oluşturuldu:\n{out_dir}",
+            tr("msg_done_title"),
+            tr("msg_export_saved", count=len(created), path=out_dir),
         )
 
     def _on_export_failed(self, error_msg: str) -> None:
         self.progress_bar.setVisible(False)
         self._update_checked_count()
-        self.lbl_status.setText("Hata oluştu.")
-        QMessageBox.critical(self, "Kayıt Hatası", f"Dosyalar oluşturulurken hata:\n{error_msg}")
+        self._set_status("status_error")
+        QMessageBox.critical(
+            self, tr("msg_export_error_title"), tr("msg_export_error", error=error_msg)
+        )
 
     def closeEvent(self, event) -> None:
         self._is_closing = True

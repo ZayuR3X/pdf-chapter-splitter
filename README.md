@@ -1,44 +1,42 @@
-# PDF Chapter Splitter by ZayuR3X
+# PDF Chapter Splitter
 
-**PySide6** ve **PyMuPDF** kullanılarak geliştirilmiş; kalın ders kitaplarını, teknik dokümanları ve akademik kaynakları içindekiler tablosu (TOC) veya özel sayfa aralıklarına göre hızlıca bölümlere ayıran çapraz platform (Linux, Windows, macOS) masaüstü uygulaması.
+A desktop utility for splitting large PDF books and technical documents into individual chapters or custom study packets using their embedded Table of Contents (TOC).
 
-![](assets/screenshot.png)
+!(assets/screenshot.png)
 
-## Özellikler
+## Features
 
-- **Hiyerarşik İçindekiler Ağacı ve Canlı Arama:** Gömülü yer imlerini (TOC) bölüm ve alt konu hiyerarşisiyle listeler; anlık arama kutusuyla yüzlerce başlık arasında hızlı filtreleme sağlar.
-- **Akıllı Bölüm Maskeleme:** Sayfa ortasında başlayan konuların üst kısmındaki önceki konuya ait metinleri ve geçiş sayfasındaki sonraki konunun başlangıcını otomatik temizler.
-- **Toplu Dışa Aktarma ve Klasörleme:** İşaretli bölümleri arka planda arayüzü dondurmadan ayrı PDF dosyaları olarak dışa aktarır; isteğe bağlı olarak alt konuları bağlı oldukları ana bölüm klasörleri altında gruplar.
-- **Tek PDF Birleştirme:** Ağaçtan seçilen (ardışık olması gerekmeyen) birden fazla bölümü, yeni sayfa numaralarına göre oluşturulmuş içindekiler tablosuyla (TOC) tek bir çalışma PDF'inde birleştirir.
-- **Hızlı Bölme ve Canlı Önizleme:** Gömülü içindekiler tablosu bulunmayan veya özel aralık gerektiren PDF'lerde sayfa önizlemesi üzerinden başlangıç/bitiş belirleyerek anında PDF kaydeder.
-- **Esnek Düzenleme ve Kısayollar:** Sürükle-bırak ile PDF açma, çift tıklamayla satır içi başlık düzenleme, çok adımlı silme geri alma (`Ctrl+Z`), akıllı seçim menüsü (`Ana Bölümleri Seç`, `Görünür Tümünü Seç`) ve son kullanılan klasörleri hatırlama desteği sunar.
-- **Özelleştirilebilir Dosya Adlandırma:** `{index}`, `{title}`, `{book}`, `{start}`, `{end}` ve `{label}` değişkenleriyle dinamik çıktı dosya adları oluşturur.
+- **TOC-Based Splitting:** Browse chapters and subsections in a tree view, filter headings in real time, rename titles inline, or remove unwanted entries with undo support (`Ctrl+Z`).
+- **Batch Export & Folder Grouping:** Export checked sections as separate PDF files with customizable filename templates (`{index}`, `{title}`, `{book}`, `{start}`, `{end}`, `{label}`) and optional grouping by parent chapter.
+- **Merge Selected Sections:** Combine multiple (even non-contiguous) sections into a single PDF with a clean table of contents.
+- **Section Masking:** Automatically masks unrelated content above mid-page section starts and below the next heading on transition pages.
+- **Quick Split & Preview:** Preview pages asynchronously, lock custom start/end page ranges, and export directly or append to the section list.
+- **Bilingual UI:** English and Turkish interface (`EN / TR` switcher in the top bar) with drag-and-drop PDF loading.
 
-## Kurulum ve Çalıştırma
+## Download & Run (No Installation)
 
-### Gereksinimler
-- Python 3.10 veya üzeri
+Download the standalone executable for your platform from the [Releases](https://github.com/ZayuR3X/pdf-chapter-splitter/releases) page:
 
-### Linux / macOS
+- **Windows:** Download `pdf-chapter-splitter-windows.exe` and double-click to run.
+- **Linux:** Download `pdf-chapter-splitter-linux`, grant execute permission, and run:
+  ```bash
+  chmod +x pdf-chapter-splitter-linux
+  ./pdf-chapter-splitter-linux
+  ```
+
+## Run from Source
+
+Requires Python 3.10+.
+
 ```bash
 git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
 cd pdf-chapter-splitter
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python main.py
-```
-
-### Windows (CMD / PowerShell)
-```cmd
-git clone https://github.com/ZayuR3X/pdf-chapter-splitter.git
-cd pdf-chapter-splitter
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
 
-## Lisans
+## License
 
-Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır.
+This project is licensed under the [MIT License](LICENSE).

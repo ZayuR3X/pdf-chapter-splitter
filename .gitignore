@@ -23,3 +23,7 @@ env/
 *.pdf
 output/
 exports/
+# PyInstaller
+build/
+dist/
+*.spec

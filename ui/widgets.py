@@ -3,18 +3,21 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from core.i18n import tr
+
 
 class PagePreviewWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._pixmap: Optional[QPixmap] = None
         self._scale_factor: float = 1.0
+        self._load_failed: bool = False
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.image_label = QLabel("Önizleme için sol üstten bir PDF açın.")
+        self.image_label = QLabel(tr("preview_placeholder"))
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("color: #888; font-size: 14px; padding: 20px;")
 
@@ -24,13 +27,20 @@ class PagePreviewWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.scroll_area)
 
+    def retranslate_ui(self) -> None:
+        if self._pixmap is None:
+            key = "preview_failed" if self._load_failed else "preview_placeholder"
+            self.image_label.setText(tr(key))
+
     def set_image_bytes(self, png_bytes: Optional[bytes]) -> None:
         if not png_bytes:
             self._pixmap = None
+            self._load_failed = True
             self.image_label.clear()
-            self.image_label.setText("Sayfa görüntüsü yüklenemedi.")
+            self.image_label.setText(tr("preview_failed"))
             return
 
+        self._load_failed = False
         image = QImage.fromData(png_bytes, "PNG")
         self._pixmap = QPixmap.fromImage(image)
         self._render_scaled()
