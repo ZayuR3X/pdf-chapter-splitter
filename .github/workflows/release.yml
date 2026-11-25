@@ -34,9 +34,71 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Build executable
+      - name: Build executable (Windows)
+        if: runner.os == 'Windows'
         run: |
           pyinstaller --onefile --windowed --clean --noconfirm --name ${{ matrix.artifact_name }} main.py
+
+      - name: Build executable (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pyi-makespec --onefile --windowed --name ${{ matrix.artifact_name }} main.py
+          python - << 'EOF'
+          from pathlib import Path
+          import textwrap
+
+          spec_path = Path("${{ matrix.artifact_name }}.spec")
+          content = spec_path.read_text(encoding="utf-8")
+          patch = textwrap.dedent("""\
+              import os
+              _EXCLUDED_SO = (
+                  "libglib-2.0",
+                  "libgio-2.0",
+                  "libgobject-2.0",
+                  "libgmodule-2.0",
+                  "libgthread-2.0",
+                  "libgtk-3",
+                  "libgdk-3",
+                  "libgdk_pixbuf-2.0",
+                  "libpango",
+                  "libcairo",
+                  "libharfbuzz",
+                  "libatk",
+                  "libatspi",
+                  "libqgtk3",
+                  "libstdc++",
+                  "libgcc_s",
+                  "libfontconfig",
+                  "libfreetype",
+                  "libexpat",
+                  "libdbus-1",
+                  "libsystemd",
+                  "libz.so",
+                  "libuuid",
+                  "libGL",
+                  "libEGL",
+                  "libdrm",
+                  "libgbm",
+                  "libwayland",
+                  "libX11",
+                  "libXext",
+                  "libXrender",
+                  "libXfixes",
+                  "libXdamage",
+                  "libXrandr",
+                  "libXi",
+                  "libXcursor",
+                  "libXcomposite",
+              )
+              a.binaries = [
+                  b for b in a.binaries
+                  if not os.path.basename(b[0]).startswith(_EXCLUDED_SO)
+              ]
+          """)
+          assert "pyz = PYZ(" in content, "Unexpected spec format"
+          spec_path.write_text(content.replace("pyz = PYZ(", patch + "\npyz = PYZ(", 1), encoding="utf-8")
+          EOF
+          pyinstaller --clean --noconfirm ${{ matrix.artifact_name }}.spec
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
